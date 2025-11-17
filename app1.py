@@ -15,7 +15,7 @@ from PIL import Image
 from io import BytesIO
 
 # ==========================================
-# 1. CONFIG & PROFESSIONAL BRIGHT THEME
+# 1. CONFIG & THEME (PROFESSIONAL BRIGHT)
 # ==========================================
 st.set_page_config(
     page_title="YouTube GEN AXE", 
@@ -100,7 +100,7 @@ if 'all_tags' not in st.session_state: st.session_state.all_tags = []
 if 'selected_video_id' not in st.session_state: st.session_state.selected_video_id = None
 
 # ==========================================
-# 3. SIDEBAR (BRANDED & FIXED KEY INPUT)
+# 3. SIDEBAR (BRANDED & AUTO-LOGIN)
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/b/b8/YouTube_Logo_2017.svg", width=150)
@@ -112,21 +112,20 @@ with st.sidebar:
         api_key = st.secrets["YOUTUBE_API_KEY"]
         st.success("YouTube Key: ONLINE")
     else:
-        api_key = st.text_input("🔑 YouTube API Key", type="password")
+        api_key = None
+        st.error("YouTube Key: OFFLINE")
 
-    # GEMINI KEY (FIXED: Added manual input)
     if "GOOGLE_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-        ai_enabled = True
-        st.success("AI Agent: ONLINE")
-    else:
-        gemini_key = st.text_input("✨ Gemini API Key", type="password")
-        if gemini_key:
-            genai.configure(api_key=gemini_key)
+        try:
+            genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
             ai_enabled = True
-        else:
+            st.success("AI Agent: ONLINE")
+        except Exception as e:
             ai_enabled = False
-            st.warning("AI Agent: OFFLINE")
+            st.error("AI Key Invalid. Get new key.")
+    else:
+        ai_enabled = False
+        st.warning("AI Agent: OFFLINE")
     
     st.divider()
     country_code = st.selectbox("Target Region", ["US", "IN", "GB", "CA", "AU"], index=0)
@@ -189,8 +188,8 @@ def get_transcript_text(video_id):
 
 # --- AI FUNCTIONS (FIXED MODEL NAMES) ---
 def ai_forensic_audit(transcript, title, duration, tags):
-    # FIXED: Using stable gemini-1.0-pro
-    model = genai.GenerativeModel('gemini-1.0-pro') 
+    # UPDATED to the latest model you requested
+    model = genai.GenerativeModel('gemini-2.5-flash') 
     
     if transcript:
         context_source = "Full Transcript"
@@ -203,8 +202,8 @@ def ai_forensic_audit(transcript, title, duration, tags):
     return model.generate_content(prompt).text
 
 def ai_title_generator(transcript, title):
-    # FIXED: Using stable gemini-1.0-pro
-    model = genai.GenerativeModel('gemini-1.0-pro')
+    # UPDATED to the latest model you requested
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"Act as MrBeast's Title writer. Here is a video transcript: {transcript[:4000]}. The original title was '{title}'. Give me 5 NEW, high-CTR (Click-Through Rate) title alternatives. Be bold and create curiosity."
     return model.generate_content(prompt).text
 
@@ -212,7 +211,7 @@ def ai_thumbnail_auditor(image_url):
     response = requests.get(image_url)
     img = Image.open(BytesIO(response.content))
     
-    # FIXED: Using stable gemini-pro-vision
+    # Vision model must stay gemini-pro-vision
     model = genai.GenerativeModel('gemini-pro-vision') 
     prompt = "You are a YouTube Thumbnail Expert. Audit this image. Provide: 1. A CTR Score (out of 10). 2. Analysis of its colors, text, and emotion. 3. One actionable tip for improvement."
     return model.generate_content([prompt, img]).text
@@ -229,5 +228,127 @@ def open_forensic_lab(vid, title, duration, tags):
         st.warning("No transcript found. Running metadata-only estimation...")
 
     with st.spinner("⚙️ Reverse Engineering Timeline..."):
-        analysis = ai_forensic_audit(transcript, title
-                                     
+        analysis = ai_forensic_audit(transcript, title, duration, tags)
+    
+    st.success("✅ Analysis Complete")
+    st.markdown(analysis)
+
+# ==========================================
+# 6. DASHBOARD UI
+# ==========================================
+st.title("YouTube GEN AXE")
+
+# 1. Search Bar (NameError Fix)
+c1, c2 = st.columns([4, 1])
+with c1:
+    query = st.text_input("Enter Topic, Niche, or Channel", placeholder="e.g. 'MrBeast', 'AI News'", label_visibility="collapsed")
+with c2:
+    if st.button("Analyze Market", type="primary", use_container_width=True):
+        if api_key and query:
+            with st.spinner('🛰️ Analyzing market data...'):
+                try:
+                    st.session_state.df, st.session_state.all_tags = get_market_data(api_key, query, 50)
+                    st.session_state.search_done = True
+                    st.session_state.selected_video_id = None
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+        else:
+            st.error("❌ Keys or Query Missing")
+
+# 4. RESULTS AREA
+if st.session_state.search_done:
+    df = st.session_state.df
+    st.write("") 
+    
+    # --- HUD METRICS (with Red/Orange CSS) ---
+    m1, m2, m3, m4 = st.columns(4)
+    with m1: st.markdown(f"<div class='metric-card'><div class='stat-label'>Total Views</div><div class='stat-value-red'>{df['Views'].sum():,}</div></div>", unsafe_allow_html=True)
+    with m2: st.markdown(f"<div class='metric-card'><div class='stat-label'>Est. Market Value</div><div class='stat-value-orange'>${df['Earnings'].sum():,.0f}</div></div>", unsafe_allow_html=True)
+    with m3: st.markdown(f"<div class='metric-card'><div class='stat-label'>Avg Duration</div><div class='stat-value-red'>{df['Duration'].mean():.1f}m</div></div>", unsafe_allow_html=True)
+    with m4: st.markdown(f"<div class='metric-card'><div class='stat-label'>Top Virality</div><div class='stat-value-orange'>{df['Virality Score'].max():.1f} / 10</div></div>", unsafe_allow_html=True)
+
+    st.write("")
+    
+    # --- MAIN TABLE (Click-to-Select) ---
+    st.markdown("### Market Database")
+    st.caption("Click any video row to select it for analysis.")
+    
+    event = st.dataframe(
+        df[['Thumbnail', 'Title', 'Views', 'Duration', 'Virality Score', 'Link', 'Video ID']], 
+        column_config={
+            "Thumbnail": st.column_config.ImageColumn("Preview"), 
+            "Virality Score": st.column_config.ProgressColumn("Score ( / 10)", min_value=0, max_value=10),
+            "Link": st.column_config.LinkColumn("▶️ WATCH"), 
+            "Video ID": None
+        }, 
+        use_container_width=True, 
+        height=500,
+        hide_index=True,
+        on_select="rerun", 
+        selection_mode="single-row"
+    )
+    
+    if event.selection.rows:
+        selected_index = event.selection.rows[0]
+        st.session_state.selected_video_id = df.iloc[selected_index]['Video ID']
+
+    st.divider()
+
+    # --- ADVANCED TOOLS (Show if a video is selected) ---
+    if st.session_state.selected_video_id:
+        video_id = st.session_state.selected_video_id
+        try:
+            row = df[df['Video ID'] == video_id].iloc[0]
+        except IndexError:
+             st.session_state.selected_video_id = None
+             st.stop()
+        
+        st.markdown(f"### Creator Studio: *{row['Title']}*")
+        
+        # --- FEATURE TABS ---
+        tabs = st.tabs(["✂️ AI Editing Lab", "🎨 AI Thumbnail Auditor", "✍️ AI Title Generator", "🎬 Video Player"])
+
+        # TAB 1: EDITING LAB
+        with tabs[0]:
+            if st.button("Run Forensic Editing Autopsy", key="edit_btn", type="primary", use_container_width=True):
+                if ai_enabled:
+                    open_forensic_lab(row['Video ID'], row['Title'], row['Duration'], row['Tags'])
+                else:
+                    st.warning("AI Module Offline")
+            st.info("Analyzes script pacing, estimates cut density, and recommends editing software.")
+
+        # TAB 2: THUMBNAIL AUDITOR (NEW!)
+        with tabs[1]:
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                st.image(row['Thumbnail'], use_container_width=True, caption="Target Thumbnail")
+            with c2:
+                if st.button("Run Thumbnail Vision Audit", key="thumb_btn", type="primary", use_container_width=True):
+                    if ai_enabled:
+                        with st.spinner("👁️ AI is analyzing image..."):
+                            try:
+                                audit = ai_thumbnail_auditor(row['Thumbnail'])
+                                st.markdown(audit)
+                            except Exception as e:
+                                st.error(f"Vision API Error: {e}")
+                    else:
+                        st.warning("AI Module Offline")
+                st.info("Uses Gemini Vision to score the thumbnail on color, emotion, and text readability.")
+        
+        # TAB 3: TITLE GENERATOR (NEW!)
+        with tabs[2]:
+            if st.button("Generate 5 Viral Titles", key="title_btn", type="primary", use_container_width=True):
+                if ai_enabled:
+                    transcript = get_transcript_text(row['Video ID']) or f"Title: {row['Title']}"
+                    with st.spinner("✍️ AI is writing titles..."):
+                        titles = ai_title_generator(transcript, row['Title'])
+                        st.markdown(titles)
+                else:
+                    st.warning("AI Module Offline")
+            st.info("Generates 5 new, high-CTR titles based on the video's content.")
+
+        # TAB 4: VIDEO PLAYER
+        with tabs[3]:
+            st.video(row['Link'])
+    else:
+        st.info("Select a video from the database to load advanced tools.")
